@@ -21,7 +21,7 @@ from megatron.core.transformer.multi_token_prediction import MTPLossAutoScaler, 
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.utils import WrappedTensor, deprecate_inference_params
 from packaging import version
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from swift.megatron.utils import split_cp_inputs
 from swift.utils import get_logger
@@ -289,6 +289,8 @@ class GPTModel(McoreGPTModel):
         *,
         inference_params: Optional[BaseInferenceContext] = None,
         loss_mask: Optional[torch.Tensor] = None,
+        mtp_embedding: Optional[Callable] = None,
+        mtp_ignore_token_ids: Optional[Tuple[int, ...]] = None,
         **kwargs,
     ) -> torch.Tensor:
         """Forward function of the GPT Model This function passes the input tensors
@@ -348,6 +350,8 @@ class GPTModel(McoreGPTModel):
             packed_seq_params=packed_seq_params,
             sequence_len_offset=sequence_len_offset,
             runtime_gather_output=runtime_gather_output,
+            mtp_embedding=mtp_embedding,
+            mtp_ignore_token_ids=mtp_ignore_token_ids,
             extra_block_kwargs=extra_block_kwargs,
             inference_context=inference_context,
         )
@@ -368,6 +372,8 @@ class GPTModel(McoreGPTModel):
         packed_seq_params=None,
         sequence_len_offset=None,
         runtime_gather_output=None,
+        mtp_embedding=None,
+        mtp_ignore_token_ids=None,
         extra_block_kwargs=None,
         inference_context=None,
     ):
@@ -400,13 +406,16 @@ class GPTModel(McoreGPTModel):
                 rotary_pos_sin=rotary_pos_sin,
                 packed_seq_params=packed_seq_params,
                 sequence_len_offset=sequence_len_offset,
-                embedding=self.embedding,
+                # [multimodal mtp] 多模态模型在这里传入专用 embedding 闭包，
+                # 这样 MTP 在构造 future-token embedding 时也会注入视觉/音频特征。
+                embedding=mtp_embedding or self.embedding,
                 **(extra_block_kwargs or {}),
             )
             hidden_states_list = torch.chunk(hidden_states, 1 + self.config.mtp_num_layers, dim=0)
             hidden_states = hidden_states_list[0]
 
             if labels is not None:
+                mtp_ignore_token_ids = tuple(mtp_ignore_token_ids or ())
                 mtp_labels = labels.clone()
                 if loss_mask is None:
                     # if loss_mask is not provided, use all ones as loss_mask
@@ -436,6 +445,19 @@ class GPTModel(McoreGPTModel):
                             loss_mask_ = loss_mask.clone()
                     mtp_loss = self.compute_language_model_loss(mtp_labels, mtp_logits)
                     loss_mask_ = loss_mask_ & (mtp_labels != -100)
+                    if input_ids is not None and mtp_ignore_token_ids:
+                        ignore_token_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                        for token_id in mtp_ignore_token_ids:
+                            ignore_token_mask |= input_ids == token_id
+                        # [multimodal mtp] 多模态 special token 只用于承载输入特征，不应作为 MTP 预测目标。
+                        if ignore_token_mask.any():
+                            ignore_token_mask, _ = roll_tensor(
+                                ignore_token_mask,
+                                shifts=-(mtp_layer_number + 1),
+                                dims=-1,
+                                cp_group=self.cp_group,
+                            )
+                            loss_mask_ = loss_mask_ & ~ignore_token_mask
                     mtp_loss = loss_mask_ * mtp_loss
                     num_tokens = loss_mask_.sum()
                     if self.training:

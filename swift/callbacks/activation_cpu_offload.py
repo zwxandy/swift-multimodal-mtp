@@ -1,7 +1,6 @@
 """Functionality for CPU offloading of tensors saved for backward pass."""
 import functools
 import torch
-from torch.distributed.fsdp import FSDPModule as FSDP2
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.training_args import TrainingArguments
@@ -11,6 +10,11 @@ from swift.utils import get_logger
 from .base import TrainerCallback
 
 logger = get_logger()
+
+try:
+    from torch.distributed.fsdp import FSDPModule as FSDP2
+except ImportError:
+    FSDP2 = None
 
 
 def is_torch_npu_available() -> bool:
@@ -25,6 +29,8 @@ def is_torch_npu_available() -> bool:
 
 is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
+
+FSDP_TYPES = tuple(fsdp_type for fsdp_type in (FSDP, FSDP2) if fsdp_type is not None)
 
 
 def _get_unique_tensor_key(tensor):
@@ -554,7 +560,7 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
 
     def get_layers(module):
         for name, child in module.named_children():
-            if not isinstance(child, FSDP | FSDP2):
+            if not isinstance(child, FSDP_TYPES):
                 get_layers(child)
             else:
                 wrapped_module = child
@@ -601,7 +607,7 @@ class ActivationCpuOffloadCallBack(TrainerCallback):
         model = kwargs['model']
 
         # Check if model is wrapped with FSDP
-        if isinstance(model, FSDP) or isinstance(model, FSDP2):
+        if isinstance(model, FSDP_TYPES):
             if args is not None and hasattr(args, 'fsdp_config'):
                 fsdp_config = args.fsdp_config
                 # Check if fsdp_config is a dictionary and has activation_cpu_offload enabled

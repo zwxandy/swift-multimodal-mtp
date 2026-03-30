@@ -430,14 +430,20 @@ def _patch_mtp():
             Union[Tensor, Tuple[Tensor, Tensor]]: The output hidden states tensor of shape
             [s, b, h], and optionally the updated context tensor if cross-attention is used.
         """
-        # TODO: Multimodal compatible
         assert context is None, 'multi token prediction + cross attention is not yet supported.'
-        input_ids, position_ids, decoder_input, hidden_states = self._get_embeddings(
-            input_ids=input_ids,
-            position_ids=position_ids,
-            embedding=embedding,
-            hidden_states=hidden_states,
-        )
+        # [multimodal mtp] 多模态兼容不在这里复用主干 hidden_states，
+        # 而是通过调用方传入的 embedding 闭包来构造带视觉/音频特征的 future-token embedding。
+        get_embeddings_kwargs = {
+            'input_ids': input_ids,
+            'position_ids': position_ids,
+            'embedding': embedding,
+            'hidden_states': hidden_states,
+        }
+        # [multimodal mtp] 不同 megatron-core 版本的 _get_embeddings 参数不同，
+        # 新版本支持 packed_seq_params，老版本则没有这个参数，这里按签名做兼容。
+        if 'packed_seq_params' in inspect.signature(self._get_embeddings).parameters:
+            get_embeddings_kwargs['packed_seq_params'] = packed_seq_params
+        input_ids, position_ids, decoder_input, hidden_states = self._get_embeddings(**get_embeddings_kwargs)
         assert not self.transformer_layer.self_attention.config.apply_rope_fusion
         packed_seq = packed_seq_params is not None and packed_seq_params.qkv_format == 'thd'
         if self.config.position_embedding_type == 'rope' and packed_seq:

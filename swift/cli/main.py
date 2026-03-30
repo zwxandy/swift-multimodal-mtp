@@ -26,6 +26,17 @@ ROUTE_MAPPING: Dict[str, str] = {
 }
 
 
+def _get_prog_name(is_megatron: bool = False) -> str:
+    prog_name = os.path.basename(sys.argv[0]) if sys.argv else ''
+    return prog_name or ('megatron' if is_megatron else 'swift')
+
+
+def _get_cli_help(route_mapping: Dict[str, str], is_megatron: bool = False) -> str:
+    prog_name = _get_prog_name(is_megatron)
+    commands = ', '.join(route_mapping.keys())
+    return f'Usage: {prog_name} <command> [args]\n\nAvailable commands: {commands}'
+
+
 def use_torchrun() -> bool:
     nproc_per_node = os.getenv('NPROC_PER_NODE')
     nnodes = os.getenv('NNODES')
@@ -84,7 +95,12 @@ def prepare_config_args(argv):
 def cli_main(route_mapping: Optional[Dict[str, str]] = None, is_megatron: bool = False) -> None:
     route_mapping = route_mapping or ROUTE_MAPPING
     argv = sys.argv[1:]
+    if not argv:
+        print(_get_cli_help(route_mapping, is_megatron), flush=True)
+        return
     method_name = argv[0].replace('_', '-')
+    if method_name not in route_mapping:
+        raise SystemExit(f'Unknown command: {method_name}\n\n{_get_cli_help(route_mapping, is_megatron)}')
     argv = argv[1:]
     file_path = importlib.util.find_spec(route_mapping[method_name]).origin
     torchrun_args = get_torchrun_args()

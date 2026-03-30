@@ -10,7 +10,6 @@ from megatron.core.transformer.spec_utils import ModuleSpec
 from packaging import version
 
 from swift.megatron.utils import split_cp_inputs
-from swift.utils import get_env_args
 from .gpt_model import GPTModel
 from .model_config import MegatronModelConfig
 
@@ -36,12 +35,37 @@ class MultimodalGPTModel(MegatronModule):
         self.share_embeddings_and_output_weights = self.language_model.share_embeddings_and_output_weights
         self.megatron_model_meta = get_megatron_model_meta(self.args.model_type)
         self.visual = None
-        if self.args.mtp_num_layers:
-            skip_validation = get_env_args('SKIP_MULTIMODAL_MTP_VALIDATION', bool, False)
-            if not skip_validation:
-                raise ValueError('MTP currently does not support multimodal models.')
+        # [multimodal mtp] 多模态 MTP 通过专用的 embedding 闭包兼容，
+        # 不再在这里直接拦截多模态模型。
         if pre_process and self.megatron_model_meta.visual_cls is not None:
             self.visual = self.megatron_model_meta.visual_cls(config)
+
+    def _get_mtp_ignore_token_ids(self):
+        if self.visual is None or not hasattr(self.visual, 'hf_config'):
+            return ()
+        token_ids = []
+        hf_configs = [self.visual.hf_config]
+        thinker_config = getattr(self.visual.hf_config, 'thinker_config', None)
+        if thinker_config is not None:
+            hf_configs.append(thinker_config)
+        for hf_config in hf_configs:
+            for attr in ('image_token_id', 'video_token_id', 'audio_token_id'):
+                token_id = getattr(hf_config, attr, None)
+                if token_id is not None:
+                    token_ids.append(int(token_id))
+        return tuple(dict.fromkeys(token_ids))
+
+    def _get_mtp_embedding(self, multimodal_kwargs, packed_seq_params):
+
+        def mtp_embedding(input_ids, position_ids):
+            mtp_kwargs = dict(multimodal_kwargs)
+            mtp_kwargs.update({'input_ids': input_ids, 'packed_seq_params': packed_seq_params})
+            # [multimodal mtp] 复用首层 embedding 的补丁逻辑，让 MTP 的 future-token embedding
+            # 与主干前向保持一致，并继续在 embedding 阶段注入视觉/音频特征。
+            with self._patch_word_embeddings(mtp_kwargs):
+                return self.language_model.embedding(input_ids=input_ids, position_ids=position_ids)
+
+        return mtp_embedding
 
     @contextmanager
     def _patch_word_embeddings(self, kwargs):
@@ -89,12 +113,17 @@ class MultimodalGPTModel(MegatronModule):
         packed_seq_params: PackedSeqParams = None,
         **kwargs,
     ) -> torch.Tensor:
+        mtp_embedding = None
+        mtp_ignore_token_ids = None
         if decoder_input is not None:
             pass
         elif self.pre_process:
+            multimodal_kwargs = dict(kwargs)
             kwargs.update({'input_ids': input_ids, 'packed_seq_params': packed_seq_params})
             with self._patch_word_embeddings(kwargs):
                 decoder_input = self.language_model.embedding(input_ids=input_ids, position_ids=position_ids)
+            mtp_embedding = self._get_mtp_embedding(multimodal_kwargs, packed_seq_params)
+            mtp_ignore_token_ids = self._get_mtp_ignore_token_ids()
         else:
             # intermediate stage of pipeline
             # decoder will get hidden_states from encoder.input_tensor
@@ -108,6 +137,8 @@ class MultimodalGPTModel(MegatronModule):
             labels=labels,
             inference_params=inference_params,
             packed_seq_params=packed_seq_params,
+            mtp_embedding=mtp_embedding,
+            mtp_ignore_token_ids=mtp_ignore_token_ids,
             **kwargs,
         )
 
