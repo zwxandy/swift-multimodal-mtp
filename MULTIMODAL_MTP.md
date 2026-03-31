@@ -169,23 +169,6 @@ input_ids, position_ids, decoder_input, hidden_states = self._get_embeddings(
 
 这样可以保证 MTP 继续沿用 Megatron 原本的 shift 逻辑，只把 embedding 计算替换为多模态兼容版本。
 
-## 使用示例
-
-```bash
-CUDA_VISIBLE_DEVICES=3 \
-NPROC_PER_NODE=1 \
-megatron sft \
-    --model /workspace/wenxuan/ckpt/Qwen3.5-4B \
-    --save_safetensors true \
-    --mtp_num_layers 1 \
-    --dataset 'AI-ModelScope/LaTeX_OCR:human_handwrite#2000' \
-    --tuner_type lora \
-    --lora_rank 8 \
-    --lora_alpha 32 \
-    --target_modules all-linear \
-    --output_dir output/Qwen3.5-4B-mtp-multimodal
-```
-
 ## 注意事项
 
 1. **special token 识别方式**: 当前实现使用 HF config 中的 `image_token_id`、`video_token_id`、
@@ -197,3 +180,54 @@ megatron sft \
 ## 修改标签
 
 所有核心修复处都带有 `[multimodal mtp]` 注释标签，方便后续检索和维护。
+
+## 使用示例
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True' \
+NPROC_PER_NODE=1 \
+CUDA_VISIBLE_DEVICES=3 \
+megatron sft \
+    --model /workspace/wenxuan/ckpts/Qwen3.5-4B \
+    --save_safetensors true \
+    --mtp_num_layers 1 \
+    --dataset 'AI-ModelScope/LaTeX_OCR:human_handwrite#2000' \
+              'swift/self-cognition#1000' \
+    --load_from_cache_file true \
+    --tuner_type lora \
+    --lora_rank 8 \
+    --lora_alpha 32 \
+    --target_modules all-linear \
+    --expert_model_parallel_size 1 \
+    --micro_batch_size 2 \
+    --global_batch_size 16 \
+    --recompute_granularity full \
+    --recompute_method uniform \
+    --recompute_num_layers 1 \
+    --num_train_epochs 1 \
+    --finetune true \
+    --cross_entropy_loss_fusion true \
+    --lr 1e-4 \
+    --lr_warmup_fraction 0.05 \
+    --min_lr 1e-5 \
+    --output_dir megatron_output/Qwen3.5-4B \
+    --eval_steps 200 \
+    --save_steps 200 \
+    --max_length 2048 \
+    --dataloader_num_workers 8 \
+    --dataset_num_proc 8 \
+    --no_save_optim true \
+    --no_save_rng true \
+    --sequence_parallel true \
+    --attention_backend flash \
+    --model_author swift \
+    --model_name swift-robot
+```
+
+推荐直接启动现在的脚本：
+```bash
+cd run_scripts
+bash qwen35_mtp_sft.sh
+```
+
+其中，`--mtp_num_layers 1` 是开启 MTP 并设置 MTP 层的数量，即额外多预测的 token 数量。`mtp_num_layers` 的值，将不自动从 `config.json` 获取，需手动设置，可以参考 `config.json` 中的 `num_nextn_predict_layers` 字段填写该值。
