@@ -29,6 +29,12 @@
         <a href="https://arxiv.org/abs/2408.05517">Paper</a> &nbsp ｜ <a href="https://swift.readthedocs.io/en/latest/">English Documentation</a> &nbsp ｜ &nbsp <a href="https://swift.readthedocs.io/zh-cn/latest/">中文文档</a> &nbsp
 </p>
 
+## 🔥 SWIFT-Multimodal-MTP 🔥
+
+- Qwen3.5 适配 cu121 环境配置清单：参考 [ENV.md](ENV.md) 文档
+- SWIFT + Multimodal MTP：参考 [MULTIMODAL_MTP.md](MULTIMODAL_MTP.md) 文档
+
+
 ## 📖 Table of Contents
 - [Groups](#-Groups)
 - [Introduction](#-introduction)

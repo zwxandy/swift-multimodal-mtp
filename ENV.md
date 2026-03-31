@@ -83,19 +83,7 @@ Qwen3.5 多模态链路需要：
 
 ## 4. 训练脚本相关注意事项
 
-### 4.1 数据集子集名
-
-`LaTeX_OCR` 的子集名应为：
-
-- `human_handwrite`
-
-不要写成：
-
-- `humani ndwrite`
-
-否则会在 `datasets/modelscope` 缓存加载阶段报找不到 config。
-
-### 4.2 attention backend
+### 4.1 attention backend
 
 在这台机器上，`Qwen3.5 + Megatron + MTP` 直接走 `flash` 后端时，曾在真实前向中触发：
 
@@ -107,7 +95,7 @@ Qwen3.5 多模态链路需要：
 
 仓库里如果仍保留 `flash`，建议在这台机器上实际训练时改成 `unfused`。
 
-### 4.3 flash-attn 版本提示
+### 4.2 flash-attn 版本提示
 
 当前实际安装的是：
 
@@ -118,6 +106,13 @@ Qwen3.5 多模态链路需要：
 - `>=2.1.1, <=2.6.3`
 
 但当前环境中它已经可以正常导入和参与初始化。真正避开训练报错的关键，不是单独降级 `flash-attn`，而是将训练脚本的 `attention_backend` 调整为 `unfused`。
+
+不过，还是建议对 flash-attn 进行降级：
+```bash
+pip uninstall -y flash-attn && /root/anaconda3/envs/swift/bin/pip install flash-attn==2.6.3 --no-build-isolation
+```
+
+并将训练脚本的 `attention_backend` 调整为原来的 `flash`。
 
 ## 5. 代理设置
 
@@ -136,24 +131,7 @@ export https_proxy=http://httpproxy.glm.ai:8888
 - `qwen-vl-utils`
 - `decord`
 
-## 6. 推荐启动方式
-
-```bash
-conda activate swift-train
-export http_proxy=http://httpproxy.glm.ai:8888
-export https_proxy=http://httpproxy.glm.ai:8888
-export PATH="/root/anaconda3/envs/swift-train/bin:$PATH"
-
-bash run_scripts/qwen35_mtp_sft.sh
-```
-
-如果训练脚本里的注意力后端还是 `flash`，建议先改成：
-
-```bash
---attention_backend unfused
-```
-
-## 7. 一句话总结
+## 6. 一句话总结
 
 当前这台机器上，最关键的稳定组合是：
 
@@ -163,7 +141,3 @@ bash run_scripts/qwen35_mtp_sft.sh
 - `transformer_engine 1.13.0`
 - `qwen-vl-utils 0.0.14`
 - `decord 0.6.0`
-
-以及训练时优先使用：
-
-- `--attention_backend unfused`
