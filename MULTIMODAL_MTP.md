@@ -232,6 +232,12 @@ bash qwen35_mtp_sft.sh
 
 其中，`--mtp_num_layers 1` 是开启 MTP 并设置 MTP 层的数量，即额外多预测的 token 数量。`mtp_num_layers` 的值，将不自动从 `config.json` 获取，需手动设置，可以参考 `config.json` 中的 `num_nextn_predict_layers` 字段填写该值。
 
+根据上面简单训练示例，如下是训练总体 loss 曲线：
 <p align="center">
     <img src="asset/train_loss.png" alt="Training Loss Curve" width="600"/>
+</p>
+
+如下是训练 MTP 模块 loss 曲线：
+<p align="center">
+    <img src="asset/train_mtp_1_loss.png" alt="Training MTP Module 1 Loss Curve" width="600"/>
 </p>
