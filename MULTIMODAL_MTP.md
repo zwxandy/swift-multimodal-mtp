@@ -241,3 +241,5 @@ bash qwen35_mtp_sft.sh
 <p align="center">
     <img src="asset/train_mtp_1_loss.png" alt="Training MTP Module 1 Loss Curve" width="600"/>
 </p>
+
+由此可见，MTP 的训练是生效的，因为开启 MTP 后，MTP loss 是在每个 MTP 层上真实计算的，通过 MTPLossAutoScaler.apply 将 loss 回传到主 hidden_states 进行梯度传播，MTP loss 随训练逐渐降低，说明梯度正在回传，MTP 层的参数在被优化器更新。
