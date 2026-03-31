@@ -41,19 +41,22 @@ class MultimodalGPTModel(MegatronModule):
             self.visual = self.megatron_model_meta.visual_cls(config)
 
     def _get_mtp_ignore_token_ids(self):
-        if self.visual is None or not hasattr(self.visual, 'hf_config'):
-            return ()
-        token_ids = []
-        hf_configs = [self.visual.hf_config]
-        thinker_config = getattr(self.visual.hf_config, 'thinker_config', None)
-        if thinker_config is not None:
-            hf_configs.append(thinker_config)
-        for hf_config in hf_configs:
-            for attr in ('image_token_id', 'video_token_id', 'audio_token_id'):
-                token_id = getattr(hf_config, attr, None)
-                if token_id is not None:
-                    token_ids.append(int(token_id))
-        return tuple(dict.fromkeys(token_ids))
+        # [multimodal mtp] 当前调试结论：多模态 special token 也应作为 MTP 预测目标参与 loss，
+        # 因此先停用基于 special token id 的忽略规则，仅保留注释代码便于后续回看。
+        # if self.visual is None or not hasattr(self.visual, 'hf_config'):
+        #     return ()
+        # token_ids = []
+        # hf_configs = [self.visual.hf_config]
+        # thinker_config = getattr(self.visual.hf_config, 'thinker_config', None)
+        # if thinker_config is not None:
+        #     hf_configs.append(thinker_config)
+        # for hf_config in hf_configs:
+        #     for attr in ('image_token_id', 'video_token_id', 'audio_token_id'):
+        #         token_id = getattr(hf_config, attr, None)
+        #         if token_id is not None:
+        #             token_ids.append(int(token_id))
+        # return tuple(dict.fromkeys(token_ids))
+        return ()
 
     def _get_mtp_embedding(self, multimodal_kwargs, packed_seq_params):
 
@@ -123,7 +126,8 @@ class MultimodalGPTModel(MegatronModule):
             with self._patch_word_embeddings(kwargs):
                 decoder_input = self.language_model.embedding(input_ids=input_ids, position_ids=position_ids)
             mtp_embedding = self._get_mtp_embedding(multimodal_kwargs, packed_seq_params)
-            mtp_ignore_token_ids = self._get_mtp_ignore_token_ids()
+            # [multimodal mtp] special token 现在也参与 MTP 预测，这里不再下传 ignore token ids。
+            # mtp_ignore_token_ids = self._get_mtp_ignore_token_ids()
         else:
             # intermediate stage of pipeline
             # decoder will get hidden_states from encoder.input_tensor

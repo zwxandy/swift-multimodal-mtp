@@ -445,19 +445,20 @@ class GPTModel(McoreGPTModel):
                             loss_mask_ = loss_mask.clone()
                     mtp_loss = self.compute_language_model_loss(mtp_labels, mtp_logits)
                     loss_mask_ = loss_mask_ & (mtp_labels != -100)
-                    if input_ids is not None and mtp_ignore_token_ids:
-                        ignore_token_mask = torch.zeros_like(input_ids, dtype=torch.bool)
-                        for token_id in mtp_ignore_token_ids:
-                            ignore_token_mask |= input_ids == token_id
-                        # [multimodal mtp] 多模态 special token 只用于承载输入特征，不应作为 MTP 预测目标。
-                        if ignore_token_mask.any():
-                            ignore_token_mask, _ = roll_tensor(
-                                ignore_token_mask,
-                                shifts=-(mtp_layer_number + 1),
-                                dims=-1,
-                                cp_group=self.cp_group,
-                            )
-                            loss_mask_ = loss_mask_ & ~ignore_token_mask
+                    # [multimodal mtp] 当前调试结论：多模态 special token 也应该在 MTP 中被预测并计算 loss。
+                    # 因此先注释掉基于 mtp_ignore_token_ids 的屏蔽逻辑，保留原实现便于后续继续对比。
+                    # if input_ids is not None and mtp_ignore_token_ids:
+                    #     ignore_token_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                    #     for token_id in mtp_ignore_token_ids:
+                    #         ignore_token_mask |= input_ids == token_id
+                    #     if ignore_token_mask.any():
+                    #         ignore_token_mask, _ = roll_tensor(
+                    #             ignore_token_mask,
+                    #             shifts=-(mtp_layer_number + 1),
+                    #             dims=-1,
+                    #             cp_group=self.cp_group,
+                    #         )
+                    #         loss_mask_ = loss_mask_ & ~ignore_token_mask
                     mtp_loss = loss_mask_ * mtp_loss
                     num_tokens = loss_mask_.sum()
                     if self.training:
